@@ -1,0 +1,99 @@
+#!/bin/bash
+####   set up some defaults
+akash_precision=1000000
+akash_chain_id=akashnet-2
+reserve_amt=1000000000  #1000 AKT - amount to keep in reserve
+threshold_amt=20000000 # 20 AKT - threshold amount when reinvest occurs
+process_id=0
+delay_seconds=7200  #needs to be less than crontab time
+####
+
+function delay_start()
+{
+  r=$((RANDOM % $delay_seconds))
+  log_data ' ----Starting Akash_Reinvest in ('$r's)---- '
+  sleep ${r}s
+}
+
+function log_data()
+{
+  log_date=$(date +"%Y-%m-%d %T")
+  echo $log_date "$1" $2
+}
+
+function withdraw_rewards()
+{
+  withdraw_hash=`/root/bin/akash tx distribution withdraw-rewards akashvaloper1x0sdgtmvdl8d6mp85sqlsh63l07jkg3fz5uaz6 --commission --fees 5000uakt --from ourlink --keyring-backend test --node tcp://10.0.0.3:26657 --chain-id akashnet-2  --yes | jq -r '.txhash'`
+  sleep 30
+
+  # process_id=$!
+  # echo 'Process_ID --> ' $process_id
+  # echo 'Process is complete ' $(ps $process_id)
+}
+
+function wallet_balance()
+{
+  # get the akash value we have in the wallet
+  akash_value=`/root/bin/akash query bank balances akash1x0sdgtmvdl8d6mp85sqlsh63l07jkg3fgkjmjs --node tcp://10.0.0.3:26657 -o json | jq -r '.balances[0].amount'`
+  sleep 10
+
+  # calculate values
+  let akash_decimals=$akash_value%$akash_precision
+  let akash_net=$(((($akash_value/$akash_precision)*$akash_precision)-$reserve_amt))
+
+  # echo the value to the console
+  log_data ' -- Reserve Amount -  ' $reserve_amt
+  log_data ' -- Wallet Balance -  ' $akash_value
+  log_data ' -------- decimals --     ' $akash_decimals
+  log_data ' ----- Net Balance - ' $akash_net
+}
+
+function delegate_net()
+{
+  delegation_json=`/root/bin/akash tx staking delegate akashvaloper1x0sdgtmvdl8d6mp85sqlsh63l07jkg3fz5uaz6 $akash_amt --from ourlink --fees 5000uakt --chain-id $akash_chain_id --keyring-backend test --node tcp://10.0.0.3:26657 --yes`
+  sleep 10
+  # echo 'Delegation cmd ---> ' $delegation_cmd
+
+#  delegation_json=`$delegation_cmd`
+
+  # echo 'JSON---> ' $delegation_json
+  delegation_hash=$(echo $delegation_json | jq -r '.txhash')
+  delegation_rawlog=$(echo $delegation_json | jq -r '.raw_log')
+}
+
+###--  Start Processing Here -- ###
+# Delays the Start to a Random Number of Seconds from Crontab Time
+delay_start
+
+# log some initial entries about the execution
+log_data ' ---------------------------------------------------- '
+log_data ' The Akash Reinvest application has started           '
+
+# Check and withdraw any commissions & rewards
+log_data ' - Withdraw Rewards & Commissions Balances           '
+withdraw_rewards
+
+log_data ' - The withdraw request completed with ' $?
+log_data ' -- Transaction Hash is - ' $withdraw_hash
+
+# Check Wallet Balance for Amounts sufficient to Delegate
+log_data ' - Check Wallet Balance for Amounts to Delegate      '
+wallet_balance
+
+# Delegate Net Balance in Wallet to Validator
+# only delegate if amount >= than threshold_amt
+if [[ $akash_net -ge $threshold_amt ]]
+then
+  log_data ' - Delegate Net Wallet Balance to Validator          '
+  akash_amt=$akash_net'uakt'
+  delegate_net
+  log_data ' -- The delegation request completed with ' $?
+  log_data ' --- Delegation Hash is - ' $delegation_hash
+  log_data ' --- Delegation Raw Log - ' $delegation_rawlog
+  log_data ' --- Amount Delegated   - ' $akash_amt
+else
+  log_data ' - Insufficient Wallet Balance to Delegate '
+fi
+
+log_data ' The Delegation Reinvestment Process has Completed!   '
+log_data ' ---------------------------------------------------- '
