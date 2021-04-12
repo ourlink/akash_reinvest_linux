@@ -1,11 +1,14 @@
 #!/bin/bash
-####   set up some defaults
+####   set up some defaults do not change
 akash_precision=1000000
 akash_chain_id=akashnet-2
-reserve_amt=1000000000  #1000 AKT - amount to keep in reserve
-threshold_amt=20000000 # 20 AKT - threshold amount when reinvest occurs
-process_id=0
-delay_seconds=7200  #needs to be less than crontab time
+
+####  processing variables that can be changed
+reinvest_type=1         #  1=keep reserve / 2=% to reserve
+reserve_percent=.25     #  used with 2 above for % to reserve
+reserve_amt=500000000   #  500 AKT - amount to keep in reserve
+threshold_amt=20000000  #   20 AKT - threshold amount when reinvest occurs
+delay_seconds=7200      #  needs to be less than crontab time
 ####
 
 function delay_start()
@@ -26,9 +29,9 @@ function withdraw_rewards()
   withdraw_hash=`/root/bin/akash tx distribution withdraw-rewards akashvaloper1x0sdgtmvdl8d6mp85sqlsh63l07jkg3fz5uaz6 --commission --fees 5000uakt --from ourlink --keyring-backend test --node tcp://10.0.0.3:26657 --chain-id akashnet-2  --yes | jq -r '.txhash'`
   sleep 30
 
-  # process_id=$!
-  # echo 'Process_ID --> ' $process_id
-  # echo 'Process is complete ' $(ps $process_id)
+  log_data ' - The withdraw request completed with ' $?
+  log_data ' -- Transaction Hash is - ' $withdraw_hash
+
 }
 
 function wallet_balance()
@@ -36,16 +39,20 @@ function wallet_balance()
   # get the akash value we have in the wallet
   akash_value=`/root/bin/akash query bank balances akash1x0sdgtmvdl8d6mp85sqlsh63l07jkg3fgkjmjs --node tcp://10.0.0.3:26657 -o json | jq -r '.balances[0].amount'`
   sleep 10
+}
 
-  # calculate values
-  let akash_decimals=$akash_value%$akash_precision
-  let akash_net=$(((($akash_value/$akash_precision)*$akash_precision)-$reserve_amt))
+function process_percent()
+{
+  # get the akash values we just received in rewards and commissions from withdraw_rewards()
+  payment_types=`/root/bin/akash query tx $withdraw_hash -o json | jq -r '[.logs[].events[] | select (.type=="withdraw_rewards" or .type=="withdraw_commission")] ' `
 
-  # echo the value to the console
-  log_data ' -- Reserve Amount -  ' $reserve_amt
-  log_data ' -- Wallet Balance -  ' $akash_value
-  log_data ' -------- decimals --     ' $akash_decimals
-  log_data ' ----- Net Balance - ' $akash_net
+  # calculate all the values
+  commission=$(echo ${payment_types} | jq -r '.[] | select (.type=="withdraw_commission").attributes[] | select (.key=="amount") | .value ')
+  rewards=$(echo ${payment_types} | jq -r '.[] | select (.type=="withdraw_rewards").attributes[] | select (.key=="amount") | .value ' )
+
+  commission_int=${commission:0:${#commission}-4}
+  rewards_int=${rewards:0:${#rewards}-4}
+  total_int=$(($commission_int+$rewards_int))
 }
 
 function delegate_net()
@@ -73,14 +80,43 @@ log_data ' The Akash Reinvest application has started           '
 log_data ' - Withdraw Rewards & Commissions Balances           '
 withdraw_rewards
 
-log_data ' - The withdraw request completed with ' $?
-log_data ' -- Transaction Hash is - ' $withdraw_hash
+# Process to keep Reserve Amount or % of withdraw
+if [[ $reinvest_type -eq 1 ]]
+then
+  # Check Wallet Balance for Amounts sufficient to Delegate
+  log_data ' - Check Wallet Balance for Amounts to Delegate      '
+  wallet_balance
 
-# Check Wallet Balance for Amounts sufficient to Delegate
-log_data ' - Check Wallet Balance for Amounts to Delegate      '
-wallet_balance
+  # calculate values
+  let akash_decimals=$akash_value%$akash_precision
+  let akash_net=$(((($akash_value/$akash_precision)*$akash_precision)-$reserve_amt))
 
-# Delegate Net Balance in Wallet to Validator
+  # echo the value to the console
+  log_data ' -- Reserve Amount -  ' $reserve_amt
+  log_data ' -- Wallet Balance -  ' $akash_value
+  log_data ' -------- decimals --     ' $akash_decimals
+  log_data ' ----- Net Balance - ' $akash_net
+
+else
+  # Process the withdraw TX Hash to determine percentages
+  log_data ' - Process Withdraw TX Hash for Amounts to Delegate  '
+  process_percent
+
+  # calculate values
+  let akash_decimals=$total_int%$akash_precision
+  let akash_net=$(((($total_int/$akash_precision)*$akash_precision)*(100-$reserve_percent)))
+
+  # echo the value to the console
+  log_data ' --     Commission -  ' $commission_int
+  log_data ' --        Rewards -  ' $rewards_int
+  log_data ' --          Total -  ' $total_int
+  log_data ' --      Reserve % -  ' $reserve_percent
+  log_data ' -------- decimals --     ' $akash_decimals
+  log_data ' -----Net Reinvest - ' $akash_net
+
+fi
+
+# Delegate Net Balance to Validator
 # only delegate if amount >= than threshold_amt
 if [[ $akash_net -ge $threshold_amt ]]
 then
