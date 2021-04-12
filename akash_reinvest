@@ -7,7 +7,7 @@ akash_chain_id=akashnet-2
 reinvest_type=1         #  1=keep reserve / 2=% to reserve
 reserve_percent=.25     #  used with 2 above for % to reserve
 reserve_amt=500000000   #  500 AKT - amount to keep in reserve
-threshold_amt=20000000  #   20 AKT - threshold amount when reinvest occurs
+threshold_amt=5000000   #    5 AKT - threshold amount when reinvest occurs
 delay_seconds=7200      #  needs to be less than crontab time
 ####
 
@@ -31,7 +31,6 @@ function withdraw_rewards()
 
   log_data ' - The withdraw request completed with ' $?
   log_data ' -- Transaction Hash is - ' $withdraw_hash
-
 }
 
 function wallet_balance()
@@ -59,11 +58,9 @@ function delegate_net()
 {
   delegation_json=`/root/bin/akash tx staking delegate akashvaloper1x0sdgtmvdl8d6mp85sqlsh63l07jkg3fz5uaz6 $akash_amt --from ourlink --fees 5000uakt --chain-id $akash_chain_id --keyring-backend test --node tcp://10.0.0.3:26657 --yes`
   sleep 10
-  # echo 'Delegation cmd ---> ' $delegation_cmd
-
-#  delegation_json=`$delegation_cmd`
-
-  # echo 'JSON---> ' $delegation_json
+    # echo 'Delegation cmd ---> ' $delegation_cmd
+    #  delegation_json=`$delegation_cmd`
+    # echo 'JSON---> ' $delegation_json
   delegation_hash=$(echo $delegation_json | jq -r '.txhash')
   delegation_rawlog=$(echo $delegation_json | jq -r '.raw_log')
 }
@@ -94,9 +91,8 @@ then
   # echo the value to the console
   log_data ' -- Reserve Amount -  ' $reserve_amt
   log_data ' -- Wallet Balance -  ' $akash_value
-  log_data ' -------- decimals --     ' $akash_decimals
-  log_data ' ----- Net Balance - ' $akash_net
-
+  log_data ' -------- decimals --    ' $akash_decimals
+  log_data ' ----- Net Balance -  ' $akash_net
 else
   # Process the withdraw TX Hash to determine percentages
   log_data ' - Process Withdraw TX Hash for Amounts to Delegate  '
@@ -104,16 +100,16 @@ else
 
   # calculate values
   let akash_decimals=$total_int%$akash_precision
-  let akash_net=$(((($total_int/$akash_precision)*$akash_precision)*(100-$reserve_percent)))
+  let akash_net=$((($total_int/$akash_precision)*$akash_precision))
+  akash_net=$(echo "$akash_net*(1-$reserve_percent)" | bc)
 
   # echo the value to the console
   log_data ' --     Commission -  ' $commission_int
   log_data ' --        Rewards -  ' $rewards_int
   log_data ' --          Total -  ' $total_int
   log_data ' --      Reserve % -  ' $reserve_percent
-  log_data ' -------- decimals --     ' $akash_decimals
-  log_data ' -----Net Reinvest - ' $akash_net
-
+  log_data ' -------- decimals --    ' $akash_decimals
+  log_data ' -----Net Reinvest -  ' $akash_net
 fi
 
 # Delegate Net Balance to Validator
