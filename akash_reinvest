@@ -3,7 +3,7 @@
 akash_validator=akashvaloper...
 key_address=akash...
 key_name=my_demo
-reserve_amt=500000000   #  500 AKT - amount to keep in reserve
+reserve_amt=5000000     #    5 AKT - amount to keep in reserve
 threshold_amt=2000000   #    2 AKT - threshold amount when reinvest occurs
 ####
 
@@ -21,8 +21,8 @@ function log_data()
 
 function withdraw_rewards()
 {
-  withdraw_hash=`/root/bin/akash tx distribution withdraw-rewards $akash_validator --fees 5000uakt --from $key_name --keyring-backend test --node $rpc_node --chain-id $chain_id  --yes | jq -r '.txhash'`
-  sleep $delay_secs
+  withdraw_hash=`~/bin/akash tx distribution withdraw-rewards $akash_validator --from $key_name --fees 5000uakt --chain-id $akash_chain_id --keyring-dir .keys --keyring-backend test --node $rpc_node --yes | jq -r '.txhash'`
+  sleep $delay_seconds
 
   log_data ' - The withdraw request completed with ' $?
   log_data ' -- Transaction Hash is - ' $withdraw_hash
@@ -32,21 +32,14 @@ function withdraw_rewards()
 function wallet_balance()
 {
   # get the akash value we have in the wallet
-  akash_value=`/root/bin/akash query bank balances $key_address --node $rpc_node -o json | jq -r '.balances[0].amount'`
-  sleep $delay_secs
+  akash_value=`~/bin/akash query bank balances $key_address --node $rpc_node -o json | jq -r '.balances[0].amount'`
+  sleep $delay_seconds
 }
 
 function delegate_net()
 {
-  delegation_json=`/root/bin/akash tx staking delegate $akash_validator $akash_amt --from $key_name --fees 5000uakt --chain-id $akash_chain_id --keyring-backend test --node $rpc_node --yes`
-  sleep $delay_secs
-  # echo 'Delegation cmd ---> ' $delegation_cmd
-
-#  delegation_json=`$delegation_cmd`
-
-  # echo 'JSON---> ' $delegation_json
-  delegation_hash=$(echo $delegation_json | jq -r '.txhash')
-  delegation_rawlog=$(echo $delegation_json | jq -r '.raw_log')
+  delegation_hash=`~/bin/akash tx staking delegate $akash_validator $akash_amt --from $key_name --fees 5000uakt --chain-id $akash_chain_id --keyring-dir .keys --keyring-backend test --node $rpc_node --yes | jq -r '.txhash'`
+  sleep $delay_seconds
 }
 
 ###--  Start Processing Here -- ###
@@ -82,7 +75,6 @@ then
   delegate_net
   log_data ' -- The delegation request completed with ' $?
   log_data ' --- Delegation Hash is - ' $delegation_hash
-  log_data ' --- Delegation Raw Log - ' $delegation_rawlog
   log_data ' --- Amount Delegated   - ' $akash_amt
 else
   log_data ' - Insufficient Wallet Balance to Delegate '

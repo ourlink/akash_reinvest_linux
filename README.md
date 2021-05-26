@@ -15,11 +15,11 @@ To run the script just open a Command Window and run the batch File.
 
 Your output should look similar to the following;
 
-![](https://i.imgur.com/0QnXSYv.png)
+![](https://i.imgur.com/rxdaY7M.png)
 
 If you do not have a sufficient balance for the re-staking to occur this will be the results the script will produce;
 
-![](https://i.imgur.com/lDi6mGu.png)
+![](https://i.imgur.com/h391BPH.png)
 
 A few quick notes;
 
@@ -84,7 +84,7 @@ The script file needs to be downloaded and configured before you can execute it 
 
 **Step 7** - Using your favorite text editor (nano, vi, etc...) edit the `akash_reinvest` script file
 
-![](https://i.imgur.com/zX6Quax.png)
+![](https://i.imgur.com/MdS8Xhw.png)
 
 In this step we are going to update the following options so that they contain your desired settings;
 
