@@ -1,22 +1,17 @@
 #!/bin/bash
+####  processing variables that can be changed
+akash_validator=akashvaloper...
+key_address=akash...
+key_name=my_demo
+reserve_amt=500000000   #  500 AKT - amount to keep in reserve
+threshold_amt=2000000   #    2 AKT - threshold amount when reinvest occurs
+####
+
 ####   set up some defaults do not change
 akash_precision=1000000
 akash_chain_id=akashnet-2
-
-####  processing variables that can be changed
-reinvest_type=1         #  1=keep reserve / 2=% to reserve
-reserve_percent=.25     #  used with 2 above for % to reserve
-reserve_amt=500000000   #  500 AKT - amount to keep in reserve
-threshold_amt=5000000   #    5 AKT - threshold amount when reinvest occurs
-delay_seconds=7200      #  needs to be less than crontab time
-####
-
-function delay_start()
-{
-  r=$((RANDOM % $delay_seconds))
-  log_data ' ----Starting Akash_Reinvest in ('$r's)---- '
-  sleep ${r}s
-}
+rpc_node=http://135.181.60.250:26657
+delay_seconds=15
 
 function log_data()
 {
@@ -26,48 +21,35 @@ function log_data()
 
 function withdraw_rewards()
 {
-  withdraw_hash=`/root/bin/akash tx distribution withdraw-rewards akashvaloper1x0sdgtmvdl8d6mp85sqlsh63l07jkg3fz5uaz6 --commission --fees 5000uakt --from ourlink --keyring-backend test --node tcp://10.0.0.3:26657 --chain-id akashnet-2  --yes | jq -r '.txhash'`
-  sleep 30
+  withdraw_hash=`/root/bin/akash tx distribution withdraw-rewards $akash_validator --fees 5000uakt --from $key_name --keyring-backend test --node $rpc_node --chain-id $chain_id  --yes | jq -r '.txhash'`
+  sleep $delay_secs
 
   log_data ' - The withdraw request completed with ' $?
   log_data ' -- Transaction Hash is - ' $withdraw_hash
+
 }
 
 function wallet_balance()
 {
   # get the akash value we have in the wallet
-  akash_value=`/root/bin/akash query bank balances akash1x0sdgtmvdl8d6mp85sqlsh63l07jkg3fgkjmjs --node tcp://10.0.0.3:26657 -o json | jq -r '.balances[0].amount'`
-  sleep 10
-}
-
-function process_percent()
-{
-  # get the akash values we just received in rewards and commissions from withdraw_rewards()
-  payment_types=`/root/bin/akash query tx $withdraw_hash -o json | jq -r '[.logs[].events[] | select (.type=="withdraw_rewards" or .type=="withdraw_commission")] ' `
-
-  # calculate all the values
-  commission=$(echo ${payment_types} | jq -r '.[] | select (.type=="withdraw_commission").attributes[] | select (.key=="amount") | .value ')
-  rewards=$(echo ${payment_types} | jq -r '.[] | select (.type=="withdraw_rewards").attributes[] | select (.key=="amount") | .value ' )
-
-  commission_int=${commission:0:${#commission}-4}
-  rewards_int=${rewards:0:${#rewards}-4}
-  total_int=$(($commission_int+$rewards_int))
+  akash_value=`/root/bin/akash query bank balances $key_address --node $rpc_node -o json | jq -r '.balances[0].amount'`
+  sleep $delay_secs
 }
 
 function delegate_net()
 {
-  delegation_json=`/root/bin/akash tx staking delegate akashvaloper1x0sdgtmvdl8d6mp85sqlsh63l07jkg3fz5uaz6 $akash_amt --from ourlink --fees 5000uakt --chain-id $akash_chain_id --keyring-backend test --node tcp://10.0.0.3:26657 --yes`
-  sleep 10
-    # echo 'Delegation cmd ---> ' $delegation_cmd
-    #  delegation_json=`$delegation_cmd`
-    # echo 'JSON---> ' $delegation_json
+  delegation_json=`/root/bin/akash tx staking delegate $akash_validator $akash_amt --from $key_name --fees 5000uakt --chain-id $akash_chain_id --keyring-backend test --node $rpc_node --yes`
+  sleep $delay_secs
+  # echo 'Delegation cmd ---> ' $delegation_cmd
+
+#  delegation_json=`$delegation_cmd`
+
+  # echo 'JSON---> ' $delegation_json
   delegation_hash=$(echo $delegation_json | jq -r '.txhash')
   delegation_rawlog=$(echo $delegation_json | jq -r '.raw_log')
 }
 
 ###--  Start Processing Here -- ###
-# Delays the Start to a Random Number of Seconds from Crontab Time
-delay_start
 
 # log some initial entries about the execution
 log_data ' ---------------------------------------------------- '
@@ -77,40 +59,19 @@ log_data ' The Akash Reinvest application has started           '
 log_data ' - Withdraw Rewards & Commissions Balances           '
 withdraw_rewards
 
-# Process to keep Reserve Amount or % of withdraw
-if [[ $reinvest_type -eq 1 ]]
-then
-  # Check Wallet Balance for Amounts sufficient to Delegate
-  log_data ' - Check Wallet Balance for Amounts to Delegate      '
-  wallet_balance
+# Check Wallet Balance for Amounts sufficient to Delegate
+log_data ' - Check Wallet Balance for Amounts to Delegate      '
+wallet_balance
 
-  # calculate values
-  let akash_decimals=$akash_value%$akash_precision
-  let akash_net=$(((($akash_value/$akash_precision)*$akash_precision)-$reserve_amt))
+# calculate values
+let akash_decimals=$akash_value%$akash_precision
+let akash_net=$(((($akash_value/$akash_precision)*$akash_precision)-$reserve_amt))
 
-  # echo the value to the console
-  log_data ' -- Reserve Amount -  ' $reserve_amt
-  log_data ' -- Wallet Balance -  ' $akash_value
-  log_data ' -------- decimals --    ' $akash_decimals
-  log_data ' ----- Net Balance -  ' $akash_net
-else
-  # Process the withdraw TX Hash to determine percentages
-  log_data ' - Process Withdraw TX Hash for Amounts to Delegate  '
-  process_percent
-
-  # calculate values
-  let akash_decimals=$total_int%$akash_precision
-  let akash_net=$((($total_int/$akash_precision)*$akash_precision))
-  akash_net=$(echo "$akash_net*(1-$reserve_percent)" | bc)
-
-  # echo the value to the console
-  log_data ' --     Commission -  ' $commission_int
-  log_data ' --        Rewards -  ' $rewards_int
-  log_data ' --          Total -  ' $total_int
-  log_data ' --      Reserve % -  ' $reserve_percent
-  log_data ' -------- decimals --    ' $akash_decimals
-  log_data ' -----Net Reinvest -  ' $akash_net
-fi
+# echo the value to the console
+log_data ' -- Reserve Amount -  ' $reserve_amt
+log_data ' -- Wallet Balance -  ' $akash_value
+log_data ' -------- decimals --    ' $akash_decimals
+log_data ' ----- Net Balance -  ' $akash_net
 
 # Delegate Net Balance to Validator
 # only delegate if amount >= than threshold_amt
